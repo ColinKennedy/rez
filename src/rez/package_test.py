@@ -5,7 +5,7 @@
 from rez.config import config
 from rez.resolved_context import ResolvedContext
 from rez.packages import get_latest_package_from_string
-from rez.exceptions import RezError, PackageNotFoundError, PackageTestError
+from rez.exceptions import PackageNotFoundError, PackageTestError, ResolvedContextError, RezError
 from rez.utils.data_utils import RO_AttrDictWrapper
 from rez.utils.colorize import heading, Printer
 from rez.utils.logging_ import print_info, print_warning, print_error
@@ -15,6 +15,7 @@ from pipes import quote
 import time
 import sys
 import os
+import functools
 
 
 basestring = six.string_types[0]
@@ -472,6 +473,153 @@ class PackageTestRunner(object):
 
         return exitcode
 
+    def run_test_env(self, variant_index, test_names):
+        """Open an interactive shell which resolves ``test_names``.
+
+        Args:
+            variant_index (int):
+                The specify build of the package to base the test environment
+                off of. If the package has no variants, this parameter is
+                ignored.
+            test_names (iter[str]):
+                The names of each extra Rez test to include in the resolve.
+
+        Raises:
+            :class:`.PackageTestError`:
+                If a provided ``variant_index`` or test within ``test_names``
+                are incompatible.
+            :class:`.ResolvedContextError`:
+                If 2 or more tests within ``test_names`` are incompatible.
+
+        Returns:
+            int: The return code of the interactive shell.
+
+        """
+
+        def _get_test_requests(variant, test_names):
+            """Convert ``test_names`` into Rez package requests.
+
+            Args:
+                variant (:class:`.Variant` or :class:`.Package`):
+                    The Rez data used to get test requirements.
+                test_names (iter[str]):
+                    The names of each extra Rez test to include in the resolve.
+
+            """
+            invalids = set()
+            missing_tests = set()
+            requires = set()
+            is_variant = hasattr(variant, "index")
+
+            if is_variant:
+                requires.update(str(request) for request in variant.requires)
+
+            for name in test_names:
+                data = self._get_test_info(name, variant) or dict()
+
+                if not data:
+                    missing_tests.add(name)
+
+                    continue
+
+                on_variants = data.get("on_variants", [])
+
+                if on_variants and variant not in on_variants:
+                    invalids.add(name)
+
+                    continue
+
+                requires.update(data.get("requires", []))
+
+            if missing_tests:
+                raise PackageTestError(
+                    'Cannot create context. Tests "{missing_tests}" are missing.'.format(
+                        missing_tests=", ".join(missing_tests)
+                    )
+                )
+
+            if not invalids:
+                return requires
+
+            if is_variant:
+                package = variant.parent
+            else:
+                package = variant
+
+            text = "{package.name}=={package.version}".format(package=package)
+
+            if not invalids:
+                raise PackageTestError(
+                    'Tests "{invalids}" cannot be run in package, "{text}".'.format(
+                        invalids=", ".join(sorted(invalids)),
+                        text=text,
+                    )
+                )
+
+            raise PackageTestError(
+                'Tests "{invalids}" cannot be run in package / variant, '
+                '"{text} / {variant.index}".'.format(
+                    invalids=", ".join(sorted(invalids)),
+                    text=text,
+                    variant=variant,
+                )
+            )
+
+        def _pre_test_commands(test_names, package_or_variant, executor):
+            # run package.py:pre_test_commands() if present
+            pre_test_commands = getattr(variant, "pre_test_commands")
+
+            tests = [RO_AttrDictWrapper({"name": name}) for name in test_names]
+            name = package_or_variant.name
+
+            with executor.reset_globals():
+                executor.bind("tests", tests)
+
+                if pre_test_commands:
+                    executor.execute_code(pre_test_commands)
+
+                if hasattr(package_or_variant, "index"):
+                    # TODO : Change this upper / replace to a more central function
+                    executor.setenv(
+                        "REZ_{name}_VARIANT_INDEX".format(name=name.upper().replace("-", "_")),
+                        package_or_variant.index,
+                    )
+
+                executor.setenv("REZ_RESOLVED_WITH_TESTS", " ".join(test_names))
+
+
+        variant = self.package.get_variant(variant_index)
+        default_variant = 0
+
+        if not variant:
+            if variant_index != default_variant:
+                raise PackageTestError(
+                    'Variant "{variant_index}" does not exist in package, '
+                    '"{self.package_request}".'.format(
+                        variant_index=variant_index, self=self
+                    )
+                )
+
+            variant = self.package
+
+        requires = tuple(_get_test_requests(variant, test_names))
+        context = self.contexts.get(requires, self._get_test_context(requires))
+
+        if not context.success:
+            context.print_info()
+
+            raise ResolvedContextError(
+                "The context failed to resolve. The interactive test shell failed."
+            )
+
+        return_code, _, _ = context.execute_shell(
+            actions_callback=functools.partial(
+                _pre_test_commands, test_names, variant,
+            ),
+        )
+
+        return return_code
+
     def print_summary(self):
         self.test_results.print_summary()
 
@@ -642,6 +790,33 @@ class PackageTestRunner(object):
 
         # just iterate over all variants
         return list(package.iter_variants())
+
+    def _get_test_context(self, requires):
+        """Generate a Rez context with this Package + ``requires``.
+
+        Args:
+            requires (tuple[str]):
+                Each package request to add into the context. e.g. ``("python-2", )``.
+
+        Returns:
+            :class:`.ResolvedContext`: The generated context.
+
+        """
+        if self.verbose:
+            self._print_header(
+                "Resolving test environment: %s\n",
+                " ".join(map(quote, requires)),
+            )
+
+        context = ResolvedContext(
+            package_requests=requires,
+            package_paths=self.package_paths,
+            buf=self.stdout,
+            timestamp=self.timestamp,
+            **self.context_kwargs,
+        )
+
+        return context
 
 
 class PackageTestResults(object):

@@ -82,6 +82,86 @@ class InfoAction(_StoreTrueAction):
         sys.exit(0)
 
 
+def get_command_details(command=None, argv=None):
+    """Parse ``command`` into an executable function + argument parser pair.
+
+    Note:
+        Given some CLI command like "rez test foo bar", ``command`` would be
+        ``"test"`` and argv would be ``["foo", "bar"]``.
+
+    Args:
+        command (str, optional):
+            The main Rez subcommand to run, if any. e.g. "test".
+        argv (list[str], optional):
+            Any extra user-provided arguments, separated by spaces.
+
+    Returns:
+        tuple[callable -> int or NoneType, :class:`argparse.Namespace`]:
+            The generated Python function which, once run, will execute
+            ``command``.  As well as a parsed set of instructions about the
+            function.
+
+    """
+    global _hyphened_command
+
+    argv = argv or sys.argv[:]
+
+    # construct args list. Note that commands like 'rez-env foo' and
+    # 'rez env foo' are equivalent
+    #
+    if command:
+        # like 'rez-foo arg1 arg2'
+        args = [command] + argv[1:]
+        _hyphened_command = True
+    elif len(sys.argv) > 1 and argv[1] in subcommands:
+        # like 'rez foo arg1 arg2'
+        command = argv[1]
+        args = argv[1:]
+    else:
+        # like 'rez -i'
+        args = argv[1:]
+
+    # parse args depending on subcommand behaviour
+    if command:
+        arg_mode = subcommands[command].get("arg_mode")
+    else:
+        arg_mode = None
+
+    parser = setup_parser()
+    if arg_mode == "grouped":
+        # args split into groups by '--'
+        arg_groups = [[]]
+        for arg in args:
+            if arg == '--':
+                arg_groups.append([])
+                continue
+            arg_groups[-1].append(arg)
+
+        opts = parser.parse_args(arg_groups[0])
+        extra_arg_groups = arg_groups[1:]
+    elif arg_mode == "passthrough":
+        # unknown args passed in first extra_arg_group
+        opts, extra_args = parser.parse_known_args(args)
+        extra_arg_groups = [extra_args]
+    else:
+        # native arg parsing
+        opts = parser.parse_args(args)
+        extra_arg_groups = []
+
+    def run_cmd():
+        try:
+            # python3 will not automatically handle cases where no sub parser
+            # has been selected. In these cases func will not exist, and an
+            # AttributeError will be raised.
+            func = opts.func
+        except AttributeError:
+            parser.error("too few arguments.")
+        else:
+            return func(opts, opts.parser, extra_arg_groups)
+
+    return run_cmd, opts
+
+
 def setup_parser():
     """Create and setup parser for given rez command line interface.
 
@@ -120,67 +200,24 @@ def setup_parser():
 
 
 def run(command=None):
-    global _hyphened_command
+    """Parse and run ``command`` as a Rez function.
 
+    Note:
+        This function also may expect input from :obj:`sys.attr`.
+
+    Args:
+        command (str, optional):
+            The main Rez subcommand to run, if any. e.g. "test".
+
+    """
     sys.dont_write_bytecode = True
 
-    # construct args list. Note that commands like 'rez-env foo' and
-    # 'rez env foo' are equivalent
-    #
-    if command:
-        # like 'rez-foo arg1 arg2'
-        args = [command] + sys.argv[1:]
-        _hyphened_command = True
-    elif len(sys.argv) > 1 and sys.argv[1] in subcommands:
-        # like 'rez foo arg1 arg2'
-        command = sys.argv[1]
-        args = sys.argv[1:]
-    else:
-        # like 'rez -i'
-        args = sys.argv[1:]
-
-    # parse args depending on subcommand behaviour
-    if command:
-        arg_mode = subcommands[command].get("arg_mode")
-    else:
-        arg_mode = None
-
-    parser = setup_parser()
-    if arg_mode == "grouped":
-        # args split into groups by '--'
-        arg_groups = [[]]
-        for arg in args:
-            if arg == '--':
-                arg_groups.append([])
-                continue
-            arg_groups[-1].append(arg)
-
-        opts = parser.parse_args(arg_groups[0])
-        extra_arg_groups = arg_groups[1:]
-    elif arg_mode == "passthrough":
-        # unknown args passed in first extra_arg_group
-        opts, extra_args = parser.parse_known_args(args)
-        extra_arg_groups = [extra_args]
-    else:
-        # native arg parsing
-        opts = parser.parse_args(args)
-        extra_arg_groups = []
+    run_cmd, opts = get_command_details(command=command, argv=sys.argv[:])
 
     if opts.debug or _env_var_true("REZ_DEBUG"):
         exc_type = _NeverError
     else:
         exc_type = RezError
-
-    def run_cmd():
-        try:
-            # python3 will not automatically handle cases where no sub parser
-            # has been selected. In these cases func will not exist, and an
-            # AttributeError will be raised.
-            func = opts.func
-        except AttributeError:
-            parser.error("too few arguments.")
-        else:
-            return func(opts, opts.parser, extra_arg_groups)
 
     if opts.profile:
         import cProfile

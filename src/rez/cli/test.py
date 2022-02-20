@@ -8,6 +8,10 @@ Run tests listed in a package's definition file.
 from __future__ import print_function
 
 
+_DEFAULT_VARIANT = 0
+VARIANT_WITHOUT_INTERACTIVE_EXIT_CODE = 1
+
+
 def setup_parser(parser, completions=False):
     parser.add_argument(
         "-l", "--list", action="store_true",
@@ -23,6 +27,14 @@ def setup_parser(parser, completions=False):
         "--inplace", action="store_true",
         help="run tests in the current environment. Any test whose requirements "
         "are not met by the current environment is skipped")
+    parser.add_argument(
+        "--interactive", action="store_true",
+        help="Open a shell instead of executing the requested tests.",
+    )
+    parser.add_argument(
+        "--variant", default=_DEFAULT_VARIANT, type=int,
+        help="Select a package's base environment. Must include --interactive.",
+    )
     PKG_action = parser.add_argument(
         "--extra-packages", nargs='+', metavar="PKG",
         help="extra packages to add to test environment")
@@ -102,6 +114,14 @@ def command(opts, parser, extra_arg_groups=None):
                 file=sys.stderr
             )
             sys.exit(0)
+
+    if opts.interactive:
+        return_code = runner.run_test_env(opts.variant or _DEFAULT_VARIANT, run_test_names)
+        sys.exit(return_code)
+
+    if opts.variant is not None:
+        print("You cannot use --variant and not --interactive.", file=sys.stderr)
+        sys.exit(VARIANT_WITHOUT_INTERACTIVE_EXIT_CODE)
 
     exitcode = 0
 
