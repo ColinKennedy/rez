@@ -19,6 +19,49 @@ Run tests listed in a package's definition file.
 from __future__ import print_function
 
 
+PACKAGE_NOT_FOUND_EXIT_CODE = 1
+
+
+def _get_package_request(path):
+    """Find an exact package request, given some directory on-disk.
+
+    Args:
+        path (str): A directory on-disk should have a Package definition file.
+
+    Returns:
+        str: A converted package request, e.g. "package_name==1.2.3", if any is found.
+
+    """
+    import sys
+
+    from rez.serialise import FileFormat
+    from rez.exceptions import PackageMetadataError
+    from rez.packages_ import get_developer_package
+
+    try:
+        package = get_developer_package(path)
+    except PackageMetadataError:
+        options = ", ".join(
+            (
+                "package.{extension}".format(extension=extension)
+                for format_ in FileFormat
+                for extension in format_.value
+            )
+        )
+
+        print(
+            'Path "{path}" contains no Rez package.\n'
+            'Make sure there at least one "{options}" file in your directory.'.format(
+                path=path, options=options,
+            ),
+            file=sys.stderr,
+        )
+
+        return ""
+
+    return "{package.name}=={package.version}".format(package=package)
+
+
 def setup_parser(parser, completions=False):
     parser.add_argument(
         "-l", "--list", action="store_true",
@@ -45,6 +88,7 @@ def setup_parser(parser, completions=False):
         help="don't load local packages")
     PKG_action = parser.add_argument(
         "PKG",
+        nargs="?",
         help="package run tests on")
     parser.add_argument(
         "TEST", nargs='*',
@@ -59,6 +103,7 @@ def command(opts, parser, extra_arg_groups=None):
     from rez.package_test import PackageTestRunner
     from rez.config import config
     import os.path
+    import os
     import sys
 
     # note that argparse doesn't support mutually exclusive arg groups
@@ -75,9 +120,14 @@ def command(opts, parser, extra_arg_groups=None):
         pkg_paths = opts.paths.split(os.pathsep)
         pkg_paths = [os.path.expanduser(x) for x in pkg_paths if x]
 
+    pkg_request = opts.PKG or _get_package_request(os.getcwd())
+
+    if not pkg_request:
+        sys.exit(PACKAGE_NOT_FOUND_EXIT_CODE)
+
     # run test(s)
     runner = PackageTestRunner(
-        package_request=opts.PKG,
+        package_request=pkg_request,
         package_paths=pkg_paths,
         extra_package_requests=opts.extra_packages,
         dry_run=opts.dry_run,
