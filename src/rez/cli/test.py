@@ -19,6 +19,7 @@ Run tests listed in a package's definition file.
 from __future__ import print_function
 
 
+_DEVELOPER_RESERVED_NAME = "."
 PACKAGE_NOT_FOUND_EXIT_CODE = 1
 
 
@@ -35,7 +36,7 @@ def _get_package_request(path):
     import sys
 
     from rez.serialise import FileFormat
-    from rez.exceptions import PackageMetadataError
+    from rez.exceptions import PackageMetadataError, ResourceError
     from rez.packages_ import get_developer_package
 
     try:
@@ -58,8 +59,43 @@ def _get_package_request(path):
         )
 
         return ""
+    except ResourceError as error:
+        print(
+            'Path "{path}" found an invalid Rez package. Error:'.format(path=path),
+            file=sys.stderr,
+        )
+        print(str(error), file=sys.stderr)
+
+        return ""
+    except PermissionError:
+        print(
+            'Directory "{path}" is not inspectable. No Rez package was found.'.format(
+                path=path
+            ),
+            file=sys.stderr,
+        )
+
+        return ""
 
     return "{package.name}=={package.version}".format(package=package)
+
+
+def _expand_request(request):
+    """Convert ``request`` into a full Rez request string, if possible.
+
+    Args:
+        request (str): An initial package and/or version, or ".", indicating the current package.
+
+    Returns:
+        str: The package request, if any.
+
+    """
+    import os
+
+    if request != _DEVELOPER_RESERVED_NAME:
+        return request
+
+    return _get_package_request(os.getcwd())
 
 
 def setup_parser(parser, completions=False):
@@ -88,7 +124,6 @@ def setup_parser(parser, completions=False):
         help="don't load local packages")
     PKG_action = parser.add_argument(
         "PKG",
-        nargs="?",
         help="package run tests on")
     parser.add_argument(
         "TEST", nargs='*',
@@ -103,7 +138,6 @@ def command(opts, parser, extra_arg_groups=None):
     from rez.package_test import PackageTestRunner
     from rez.config import config
     import os.path
-    import os
     import sys
 
     # note that argparse doesn't support mutually exclusive arg groups
@@ -120,7 +154,7 @@ def command(opts, parser, extra_arg_groups=None):
         pkg_paths = opts.paths.split(os.pathsep)
         pkg_paths = [os.path.expanduser(x) for x in pkg_paths if x]
 
-    pkg_request = opts.PKG or _get_package_request(os.getcwd())
+    pkg_request = _expand_request(opts.PKG)
 
     if not pkg_request:
         sys.exit(PACKAGE_NOT_FOUND_EXIT_CODE)
