@@ -21,6 +21,7 @@
 - [[Suites]]
 - [[Building Packages]]
 - [[Managing Packages]]
+- [[Testing Packages]]
 - [[Environment Variables]]
 - [[Command Line Tools]]
 
@@ -38,7 +39,6 @@
 - [[Caching]]
 - [[Releasing Packages]]
 - [[Package Filters]]
-- [[Testing Packages]]
 - [[Rez GUI]]
 - [[The Resolve Graph]]
 - [[Timestamping]]

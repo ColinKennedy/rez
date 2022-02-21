@@ -14,9 +14,19 @@ variants = [
 build_command = "python {root}/rezbuild.py"
 
 tests = {
+    "black_diff": {
+        "command": "black --diff --check python tests",
+        "requires": ["black"],
+    },
+    "black": {
+        "command": "black python tests",
+        "requires": ["black"],
+        "run_on": "explicit",
+    },
     "documentation": {
         "command": "sphinx-build -b html documentation/source documentation/build",
         "requires": ["Sphinx", "python-3"],
+        "run_on": "pre_release",
     },
     "unittest": {
         "command": "python -m unittest discover",
