@@ -25,7 +25,8 @@ tests = {
     },
     "documentation": {
         "command": "sphinx-build -b html documentation/source documentation/build",
-        "requires": ["Sphinx", "python-3"],
+        "on_variants": {"value": ["python-3"], "type": "requires"},
+        "requires": ["Sphinx"],
         "run_on": "pre_release",
     },
     "unittest": {
