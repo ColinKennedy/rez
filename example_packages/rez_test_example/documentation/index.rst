@@ -10,6 +10,8 @@ Welcome to rez_test_example's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   api/modules
+
 
 
 Indices and tables
