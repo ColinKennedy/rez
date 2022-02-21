@@ -20,20 +20,6 @@ def _remove(path):
 
 def _build(source, build, install):
 
-    def _build_documentation(build, install):
-        built_documentation = os.path.join(build, "documentation")
-
-        if not os.path.isdir(built_documentation):
-            # The documentation is not guaranteed to exist. Only include it if it does.
-            print("Skipping documentation installation. No documentation found.")
-
-            return
-
-        full_destination = os.path.join(install, "documentation")
-
-        _remove(full_destination)
-        shutil.copytree(built_documentation, full_destination)
-
     def _build_python(source, install):
         for folder in ["python"]:
             full_source = os.path.join(source, folder)
@@ -43,7 +29,6 @@ def _build(source, build, install):
             shutil.copytree(full_source, full_destination)
 
     _build_python(source, install)
-    _build_documentation(build, install)
 
 
 if __name__ == '__main__':

@@ -207,8 +207,7 @@ documentation, but only just before the Rez package is released (or if
 explicitly asked for). The reason is simple - Sphinx can be slow to run and so
 it isn't suitable to always run by default. But we do want to ensure that it
 always runs as part of our release process, making `"run_on": "pre_release"` a
-natural choice. Note in `rez_test_example`'s "rezbuild.py" file, there's a
-special section for detecting + installing that documentation.
+natural choice.
 
 
 ## Parting Thoughts
