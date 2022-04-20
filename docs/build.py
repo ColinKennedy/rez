@@ -10,19 +10,21 @@ import errno
 import os
 import re
 import subprocess
+import sys
 import tempfile
 
 
 THIS_FILE = os.path.abspath(__file__)
 THIS_DIR = os.path.dirname(THIS_FILE)
 REZ_SOURCE_DIR = os.getenv("REZ_SOURCE_DIR", os.path.dirname(THIS_DIR))
-REQUIREMENTS = ['sphinx_rtd_theme', REZ_SOURCE_DIR]
+REQUIREMENTS = ["sphinx_rtd_theme", REZ_SOURCE_DIR]
 DEST_DIR = os.path.join("docs", "_build")
 PIP_PATH_REGEX = re.compile(r"'([^']+)' which is not on PATH.")
 
 
 class CliParser(argparse.ArgumentParser):
     """Parser flags, using global variables as defaults."""
+
     INIT_DEFAULTS = {
         "prog": "build",
         "description": "Build Sphinx Python API docs",
@@ -72,10 +74,14 @@ def construct_docker_run_args():
         docker_args += ["--user", ":".join(map(str, user_group_ids))]
 
     docker_args += [
-        "--workdir", REZ_SOURCE_DIR,
-        "--volume", ":".join([REZ_SOURCE_DIR, REZ_SOURCE_DIR]),
+        "--workdir",
+        REZ_SOURCE_DIR,
+        "--volume",
+        ":".join([REZ_SOURCE_DIR, REZ_SOURCE_DIR]),
         "python:{v.major}.{v.minor}".format(v=os.sys.version_info),
-        "python", THIS_FILE, "--no-docker"
+        "python",
+        THIS_FILE,
+        "--no-docker",
     ]
 
     return docker_args
@@ -90,13 +96,10 @@ def print_call(cmdline_args, *print_args, **print_kwargs):
         print_args (dict): Additional arguments for print function.
         print_kwargs (dict): Keyword arguments for print function.
     """
-    width = os.getenv('COLUMNS', 80)
-    out_file = print_kwargs.setdefault('file', os.sys.stdout)
-    message = '{:=^{width}}{nl}{}{nl:=<{width}}'.format(
-        " Calling ",
-        subprocess.list2cmdline(cmdline_args),
-        nl=os.linesep,
-        width=width
+    width = os.getenv("COLUMNS", 80)
+    out_file = print_kwargs.setdefault("file", os.sys.stdout)
+    message = "{:=^{width}}{nl}{}{nl:=<{width}}".format(
+        " Calling ", subprocess.list2cmdline(cmdline_args), nl=os.linesep, width=width
     )
     print(message, *print_args, **print_kwargs)
     out_file.flush()
@@ -113,7 +116,7 @@ def path_with_pip_scripts(install_stderr, path_env=None):
         str: New PATH variable value.
     """
     if path_env is None:
-        path_env = os.getenv('PATH', '')
+        path_env = os.getenv("PATH", "")
     paths = path_env.split(os.pathsep)
 
     for match in PIP_PATH_REGEX.finditer(install_stderr):
@@ -124,50 +127,65 @@ def path_with_pip_scripts(install_stderr, path_env=None):
     return os.pathsep.join(paths)
 
 
-def _cli():
-    """Main routine for when called from command line."""
+def _install_pip_packages(requirements):
+    # Run pip install for required docs building packages
+    pip_args = ["pip", "install", "--user"]
+    pip_args += REQUIREMENTS + requirements
+
+    with tempfile.TemporaryFile() as stderr_file:
+        subprocess.check_call(pip_args, env=os.environ, stderr=stderr_file)
+        stderr_file.seek(0)
+        stderr = str(stderr_file.read())
+
+    return path_with_pip_scripts(stderr)
+
+
+def _run_without_docker(requirements):
+    environment = os.environ.copy()
+
+    # Fake user's $HOME in container to fix permission issues
+    if os.name == "posix" and os.path.expanduser("~") == "/":
+        environment["HOME"] = tempfile.mkdtemp()
+
+    environment["PATH"] = _install_pip_packages(requirements)
+
+    # Run sphinx-build docs, falling back to use sphinx-build.exe
+    sphinx_build = "sphinx-build"
+    build_args = ["docs", DEST_DIR]
+    sphinx_build_args = [sphinx_build] + build_args
+
+    try:
+        print_call(sphinx_build_args)
+    except OSError as error:
+        if error.errno != errno.ENOENT:
+            raise
+
+        # Windows Python 2.7 needs a full .exe path, see GitHub workflows run:
+        # Reference: https://github.com/wwfxuk/rez/runs/380399547
+        #
+        latest_path = environment["PATH"].split(os.pathsep)[-1]
+        sphinx_build = os.path.join(latest_path, sphinx_build + ".exe")
+
+        sphinx_build_args = [sphinx_build] + build_args
+        print_call(sphinx_build_args)
+
+        return subprocess.call(sphinx_build_args, env=environment)
+
+    return subprocess.call(sphinx_build_args, env=environment)
+
+
+def main():
+    """Parse the user's input and build Sphinx documentation."""
     args = CliParser().parse_args()
 
     if args.docker:
         docker_args = construct_docker_run_args() + args.requirement
         print_call(docker_args)
-        os.sys.exit(subprocess.call(docker_args))
-    else:
-        docs_env = os.environ.copy()
 
-        # Fake user's $HOME in container to fix permission issues
-        if os.name == "posix" and os.path.expanduser("~") == "/":
-            docs_env['HOME'] = tempfile.mkdtemp()
+        sys.exit(subprocess.call(docker_args))
 
-        # Run pip install for required docs building packages
-        pip_args = ['pip', 'install', '--user']
-        pip_args += REQUIREMENTS + args.requirement
-        with tempfile.TemporaryFile() as stderr_file:
-            subprocess.check_call(pip_args, env=docs_env, stderr=stderr_file)
-            stderr_file.seek(0)
-            stderr = str(stderr_file.read())
-        docs_env['PATH'] = path_with_pip_scripts(stderr)
-
-        # Run sphinx-build docs, falling back to use sphinx-build.exe
-        sphinx_build = 'sphinx-build'
-        build_args = ['docs', DEST_DIR]
-        sphinx_build_args = [sphinx_build] + build_args
-        try:
-            print_call(sphinx_build_args)
-            os.sys.exit(subprocess.call(sphinx_build_args, env=docs_env))
-        except OSError as error:
-            if error.errno == errno.ENOENT:
-                # Windows Py2.7 needs full .exe path, see GitHub workflows run:
-                # https://github.com/wwfxuk/rez/runs/380399547
-                latest_path = docs_env['PATH'].split(os.pathsep)[-1]
-                sphinx_build = os.path.join(latest_path, sphinx_build + '.exe')
-
-                sphinx_build_args = [sphinx_build] + build_args
-                print_call(sphinx_build_args)
-                os.sys.exit(subprocess.call(sphinx_build_args, env=docs_env))
-            else:
-                raise
+    sys.exit(_run_without_docker(args.requirement))
 
 
 if __name__ == "__main__":
-    _cli()
+    main()
