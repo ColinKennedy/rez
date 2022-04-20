@@ -4,14 +4,16 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-
+import contextlib
 import argparse
-import errno
 import os
 import re
 import subprocess
 import sys
 import tempfile
+
+from sphinx.cmd import build as sphinx_build
+from sphinx.ext import apidoc
 
 
 THIS_FILE = os.path.abspath(__file__)
@@ -20,6 +22,9 @@ REZ_SOURCE_DIR = os.getenv("REZ_SOURCE_DIR", os.path.dirname(THIS_DIR))
 REQUIREMENTS = ["sphinx_rtd_theme", REZ_SOURCE_DIR]
 DEST_DIR = os.path.join("docs", "_build")
 PIP_PATH_REGEX = re.compile(r"'([^']+)' which is not on PATH.")
+
+# Arbitrary folders which we probably don't want to expose API documentation for
+_EXCLUDED_API_DIRECTORIES = ("src/build_utils", "src/rez/vendor", "src/support")
 
 
 # TODO : Remove this later
@@ -45,6 +50,18 @@ class CliParser(argparse.ArgumentParser):
         for key, value in self.INIT_DEFAULTS.items():
             kwargs.setdefault(key, value)
         super(CliParser, self).__init__(**kwargs)
+
+        self.add_argument(
+            "--api-source",
+            default=os.path.join(REZ_SOURCE_DIR, "src"),
+            help="The folder where all Rez-related Python files live.",
+        )
+
+        self.add_argument(
+            "--api-destination",
+            default=os.path.join(REZ_SOURCE_DIR, "docs", "api"),
+            help="The folder where auto-generated sphinx-apidoc .rst files will be written to."
+        )
 
         self.add_argument(
             "--no-docker",
@@ -141,7 +158,36 @@ def _install_pip_packages(requirements):
     return path_with_pip_scripts(stderr)
 
 
-def _run_without_docker(requirements):
+@contextlib.contextmanager
+def _keep_environment():
+    original = os.environ.copy()
+
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(original)
+
+
+def _run_sphinx_apidoc(source, destination):
+    command = ["--output-dir", destination, source]
+    command.extend(_EXCLUDED_API_DIRECTORIES)
+    apidoc.main(command)
+
+
+def _run_sphinx_build(destination):
+    # Run sphinx-build docs, falling back to use sphinx-build.exe
+    build_args = ["docs", destination]
+
+    try:
+        sphinx_build.main(build_args)
+    except SystemExit as error:
+        return error.code
+
+    return 0
+
+
+def _run_without_docker(requirements, api_source, api_destination):
     environment = os.environ.copy()
 
     # Fake user's $HOME in container to fix permission issues
@@ -150,29 +196,15 @@ def _run_without_docker(requirements):
 
     environment["PATH"] = _install_pip_packages(requirements)
 
-    # Run sphinx-build docs, falling back to use sphinx-build.exe
-    sphinx_build = "sphinx-build"
-    build_args = ["docs", DEST_DIR]
-    sphinx_build_args = [sphinx_build] + build_args
-
     try:
-        print_call(sphinx_build_args)
-    except OSError as error:
-        if error.errno != errno.ENOENT:
-            raise
+        _run_sphinx_apidoc(api_source, api_destination)
+    except SystemExit as error:
+        return error.code
 
-        # Windows Python 2.7 needs a full .exe path, see GitHub workflows run:
-        # Reference: https://github.com/wwfxuk/rez/runs/380399547
-        #
-        latest_path = environment["PATH"].split(os.pathsep)[-1]
-        sphinx_build = os.path.join(latest_path, sphinx_build + ".exe")
+    with _keep_environment():
+        os.environ.update(environment)
 
-        sphinx_build_args = [sphinx_build] + build_args
-        print_call(sphinx_build_args)
-
-        return subprocess.call(sphinx_build_args, env=environment)
-
-    return subprocess.call(sphinx_build_args, env=environment)
+        return _run_sphinx_build(DEST_DIR)
 
 
 def main():
@@ -185,7 +217,7 @@ def main():
 
         sys.exit(subprocess.call(docker_args))
 
-    sys.exit(_run_without_docker(args.requirement))
+    sys.exit(_run_without_docker(args.requirement, args.api_source, args.api_destination))
 
 
 if __name__ == "__main__":
