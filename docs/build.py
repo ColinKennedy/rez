@@ -4,10 +4,12 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import contextlib
 import argparse
+import contextlib
+import itertools
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,12 +21,24 @@ from sphinx.ext import apidoc
 THIS_FILE = os.path.abspath(__file__)
 THIS_DIR = os.path.dirname(THIS_FILE)
 REZ_SOURCE_DIR = os.getenv("REZ_SOURCE_DIR", os.path.dirname(THIS_DIR))
-REQUIREMENTS = ["sphinx_rtd_theme", REZ_SOURCE_DIR]
+REQUIREMENTS = (
+    "sphinx_rtd_theme",
+    "Qt.py>=1",  # Needed for :mod:`rezgui`
+    "pysvn>=0.1",  # Needed for :mod:`rezplugins.release_vcs`
+    REZ_SOURCE_DIR,
+)
 DEST_DIR = os.path.join("docs", "_build")
 PIP_PATH_REGEX = re.compile(r"'([^']+)' which is not on PATH.")
 
+_SPHINX_EXTENSION = ".rst"
+
 # Arbitrary folders which we probably don't want to expose API documentation for
-_EXCLUDED_API_DIRECTORIES = ("src/build_utils", "src/rez/vendor", "src/support")
+_EXCLUDED_API_DIRECTORIES = (
+    "src/build_utils",
+    "src/rez/tests",
+    "src/rez/vendor",
+    "src/support",
+)
 
 
 # TODO : Remove this later
@@ -145,17 +159,20 @@ def path_with_pip_scripts(install_stderr, path_env=None):
     return os.pathsep.join(paths)
 
 
+def _clear_rst_files(directory):
+    for name in os.listdir(directory):
+        if not name.endswith(_SPHINX_EXTENSION):
+            continue
+
+        os.remove(os.path.join(directory, name))
+
+
 def _install_pip_packages(requirements):
     # Run pip install for required docs building packages
-    pip_args = ["pip", "install", "--user"]
-    pip_args += REQUIREMENTS + requirements
-
-    with tempfile.TemporaryFile() as stderr_file:
-        subprocess.check_call(pip_args, env=os.environ, stderr=stderr_file)
-        stderr_file.seek(0)
-        stderr = str(stderr_file.read())
-
-    return path_with_pip_scripts(stderr)
+    for requirement in itertools.chain(REQUIREMENTS, requirements):
+        # TODO : replace with import + call
+        pip_args = ["pip", "install", "--user", requirement]
+        subprocess.check_call(pip_args, env=os.environ)
 
 
 @contextlib.contextmanager
@@ -170,8 +187,12 @@ def _keep_environment():
 
 
 def _run_sphinx_apidoc(source, destination):
-    command = ["--output-dir", destination, source]
+    if os.path.isdir(destination):
+        _clear_rst_files(destination)
+
+    command = ["--separate", "--output-dir", destination, source]
     command.extend(_EXCLUDED_API_DIRECTORIES)
+
     apidoc.main(command)
 
 
@@ -193,8 +214,6 @@ def _run_without_docker(requirements, api_source, api_destination):
     # Fake user's $HOME in container to fix permission issues
     if os.name == "posix" and os.path.expanduser("~") == "/":
         environment["HOME"] = tempfile.mkdtemp()
-
-    environment["PATH"] = _install_pip_packages(requirements)
 
     try:
         _run_sphinx_apidoc(api_source, api_destination)
