@@ -1,9 +1,12 @@
 """Ensure specific functionality of :mod:`rez.resolved_context` works."""
 
-import copy
+import atexit
 import contextlib
+import copy
+import functools
 import os
 import platform
+import tempfile
 
 from rez.cli import _main
 from rez.config import _replace_config, config
@@ -79,14 +82,23 @@ def _override_config():
 
 def _run_test(parts, name):
 
-    def _to_variable(name):
+    def _make_temporary():
+        _, path = tempfile.mkstemp(suffix="_echo_variable.txt")
+        atexit.register(functools.partial(os.remove, path))
+
+        return path
+
+    def _write_variable_to_file(name, path):
+        command = "echo ${name} >> {path}".format(name=name, path=path)
+
         if platform.system() == "Windows":
-            return "%{name}%".format(name=name)
+            command = "echo %{name}% >> {path}".format(name=name, path=path)
 
-        return "${name}".format(name=name)
+        return ["--", *shlex.split(command)]
 
+    path = _make_temporary()
     parts = copy.copy(parts)
-    parts.extend(["--", "echo", _to_variable(name)])
+    parts.extend(_write_variable_to_file(name, path))
     subcommand = parts[0]
 
     command, _ = _main.parse_command(subcommand, argv=parts)
@@ -96,3 +108,6 @@ def _run_test(parts, name):
     except SystemExit as error:
         if error.code != 0:
             raise
+
+    with open(path, "r") as handler:
+        raise ValueError(handler.read())
