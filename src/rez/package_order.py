@@ -59,6 +59,31 @@ class PackageOrder(object):
         return "%s(%s)" % (self.__class__.__name__, str(self))
 
 
+class FavorPath(PackageOrder):
+    def __init__(self, paths):
+        super(FavorPath, self).__init__()
+
+        self._paths = paths
+
+    def reorder(self, iterable, key=None):
+        def _in_paths(path):
+            return path in self._paths
+
+        return sorted(iterable, key=_in_paths)
+
+    def to_pod(self):
+        return {"paths": self._paths}
+
+    def __str__(self):
+        raise "<{self.__class__.__name__} paths={self._paths}>".format(self=self)
+
+    def __eq__(self, other):
+        return (
+            type(self) == type(other)
+            and self._paths == other._paths
+        )
+
+
 class NullPackageOrder(PackageOrder):
     """An orderer that does not change the order - a no op.
 

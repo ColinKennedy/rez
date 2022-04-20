@@ -33,6 +33,10 @@ def setup_parser(parser, completions=False):
         help="read commands from string. Alternatively, list command arguments "
         "after a '--'")
     parser.add_argument(
+        "--favor-paths", nargs="*", default=[config.local_packages_path],
+        help="Rez packages found in these paths are preferred over all other paths.",
+    )
+    parser.add_argument(
         "-s", "--stdin", action="store_true",
         help="read commands from standard input")
     parser.add_argument(
@@ -139,6 +143,7 @@ def setup_parser(parser, completions=False):
 def command(opts, parser, extra_arg_groups=None):
     from rez.resolved_context import ResolvedContext
     from rez.resolver import ResolverStatus
+    from rez.package_order import FavorPath
     from rez.package_filter import PackageFilterList, Rule
     from rez.utils.formatting import get_epoch_time_from_str
     from rez.config import config
@@ -184,6 +189,11 @@ def command(opts, parser, extra_arg_groups=None):
                                               rank=opts.patch_rank)
         context = None
 
+    package_orderers = None
+
+    if opts.favor_paths:
+        package_orderers = [FavorPath(opts.favor_paths)]
+
     if context is None:
         # create package filters
         if opts.no_filters:
@@ -206,6 +216,7 @@ def command(opts, parser, extra_arg_groups=None):
             package_paths=pkg_paths,
             building=opts.build,
             package_filter=package_filter,
+            package_orderers=package_orderers,
             add_implicit_packages=(not opts.no_implicit),
             verbosity=opts.verbose,
             max_fails=opts.max_fails,
