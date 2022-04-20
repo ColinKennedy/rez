@@ -22,6 +22,7 @@ DEST_DIR = os.path.join("docs", "_build")
 PIP_PATH_REGEX = re.compile(r"'([^']+)' which is not on PATH.")
 
 
+# TODO : Remove this later
 class CliParser(argparse.ArgumentParser):
     """Parser flags, using global variables as defaults."""
 
