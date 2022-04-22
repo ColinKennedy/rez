@@ -113,19 +113,26 @@ class FeatureEphemerals(_Base):
             "packages_path": cls.packages_path,
         }
 
+    def test_conflicting_requests(self):
+        """Fail to solve when 2+ feature ephemerals have conflicting version ranges."""
+        raise ValueError()
+
     def test_from_requires(self):
         """Solve feature ephemerals specified from a packages ``requires`` attribute."""
-        self._solve(["contains_features"], ["contains_features-1.3.0[]"])
+        self._solve(
+            ["contains_features"],
+            ["contains_features-1.6.0[]"],
+        )
         self._solve(
             ["contains_features", ".contains_features.feature.foo-1+<2"],
-            ["contains_features-1.2.0[]"],
+            ["contains_features-1.5.0[]", ".contains_features.feature.foo-1"],
         )
         self._solve(
             [
                 "contains_features",
                 ".contains_features.feature.bar-1",
             ],
-            ["contains_features[1.0.0]"],
+            ["contains_features-1.0.0[]", ".contains_features.feature.bar-1"],
         )
 
     def test_from_variants(self):
@@ -134,7 +141,18 @@ class FeatureEphemerals(_Base):
 
     def test_multi_match(self):
         """Solve the package that contains all feature ephemeral matches."""
-        raise ValueError()
+        self._solve(
+            [
+                "contains_features",
+                ".contains_features.feature.foo-1+<2",
+                ".contains_features.feature.bar-2",
+            ],
+            [
+                "contains_features-1.4.0[]",
+                ".contains_features.feature.bar-2.1",
+                ".contains_features.feature.foo-1",
+            ],
+        )
 
     def test_nested(self):
         """Solve a feature ephemeral for a **dependency** package.

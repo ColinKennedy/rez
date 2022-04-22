@@ -18,6 +18,7 @@ from rez.packages import iter_packages
 from rez.package_repository import package_repo_stats
 from rez.utils.logging_ import print_debug
 from rez.utils.data_utils import cached_property
+from rez.utils.formatting import PackageRequest
 from rez.vendor.pygraph.classes.digraph import digraph
 from rez.vendor.pygraph.algorithms.cycles import find_cycle
 from rez.vendor.pygraph.algorithms.accessibility import accessibility
@@ -29,11 +30,15 @@ from rez.vendor.version.requirement import VersionedObject, Requirement, \
 from rez.vendor.enum import Enum
 from contextlib import contextmanager
 from itertools import product, chain
+import collections
 import copy
-import time
-import sys
 import os
+import re
+import sys
+import time
 
+# TODO : Make this expression more robust
+_FEATURE_EPHEMERAL = re.compile(r"\.(?P<name>\w+)\.feature\..+")
 
 # a hidden control for forcing to non-optimized solving mode. This is here as
 # first port of call for narrowing down the cause of a solver bug if we see one
@@ -1250,12 +1255,81 @@ class _ResolvePhase(_Common):
     def pr(self):
         return self.solver.pr
 
+    def _get_filtered_scopes(self):
+        def _get_matching_scope(slice_, feature_ephemerals):
+            feature_scopes = [
+                _PackageScope(PackageRequest(str(requirement)), self.solver)
+                for requirement in feature_ephemerals
+            ]
+            output = collections.defaultdict(list)
+
+            for variant in slice_.iter_variants():
+                requirements = {
+                    requirement.name: requirement
+                    for requirement in variant.requires_list.requirements
+                }
+
+                for scope in feature_scopes:
+                    if scope.package_name not in requirements:
+                        break
+
+                    requirement = requirements[scope.package_name]
+
+                    if not scope.intersect(requirement.range):
+                        break
+                else:
+                    output[variant.name].append(variant.version)
+
+            if len(output) != 1:
+                raise RuntimeError('Output "{output}" is invalid.'.format(output=output))
+
+            name, versions = next(iter(output.items()))
+
+            return _PackageScope(
+                PackageRequest(
+                    "{name}{versions}".format(
+                        name=name,
+                        versions="|".join(["=={version}".format(version=version) for version in versions])
+                    ),
+                ),
+                self.solver,
+            )
+
+        scopes = self.scopes[:]
+        feature_ephemerals = _get_feature_ephemerals_by_name(scopes)
+        cache = self.solver.package_cache
+        output = []
+
+        for scope in scopes:
+            package_name = scope.package_name
+
+            if package_name not in feature_ephemerals:
+                output.append(scope)
+
+                continue
+
+            if not _FEATURE_EPHEMERAL.match(package_name):
+                slice_ = cache.get_variant_slice(
+                    package_name=package_name,
+                    range_=scope.package_request.range,
+                )
+                scope = _get_matching_scope(slice_, feature_ephemerals[package_name])
+
+            for feature_ephemeral in reversed(feature_ephemerals[package_name]):
+                scope_ = scope.intersect(feature_ephemeral.range)
+
+                if scope_:
+                    output.append(scope_)
+
+        return output
+
     def solve(self):
         """Attempt to solve the phase."""
         if self.status != SolverStatus.pending:
             return self
 
         scopes = self.scopes[:]
+        scopes = self._get_filtered_scopes()
         failure_reason = None
         extractions = {}
 
@@ -1387,6 +1461,12 @@ class _ResolvePhase(_Common):
                                     "package family not found: %s, "
                                     "was required by: %s (searched: %s)"
                                     % (req.name, requested, searched))
+
+                        # TODO : Need to handle this scenario - only append if
+                        # the scope is "allowed", based on the feature
+                        # ephemerals
+                        #
+                        print('assfd', ('Appending', scope))
 
                         scopes.append(scope)
                         if self.pr:
@@ -2414,6 +2494,21 @@ class Solver(_Common):
         return "%s %s %s" % (self.status,
                              self._depth_label(),
                              str(self.phase_stack[-1]))
+
+
+def _get_feature_ephemerals_by_name(scopes):
+    output = collections.defaultdict(list)
+
+    for scope in scopes:
+        match = _FEATURE_EPHEMERAL.match(scope.package_name)
+
+        if not match:
+            continue
+
+        inner_package_name = match.group("name")
+        output[inner_package_name].append(scope.package_request)
+
+    return output
 
 
 def _short_req_str(package_request):
