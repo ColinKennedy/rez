@@ -115,7 +115,11 @@ class FeatureEphemerals(_Base):
 
     def test_conflicting_requests(self):
         """Fail to solve when 2+ feature ephemerals have conflicting version ranges."""
-        raise ValueError()
+        self._fail(
+            "contains_features",
+            ".contains_features.feature.foo==1.0.0",
+            ".contains_features.feature.foo-1.1+<2",
+        )
 
     def test_from_requires(self):
         """Solve feature ephemerals specified from a packages ``requires`` attribute."""
@@ -166,11 +170,17 @@ class FeatureEphemerals(_Base):
 
     def test_no_matching_name(self):
         """Fail the solve because the feature ephemeral name is not found."""
-        raise ValueError()
+        self._fail(
+            "contains_features",
+            ".contains_features.feature.does_not_exist==1.0.0",
+        )
 
     def test_no_matching_version(self):
         """Fail the solve because the feature ephemeral version range is wrong."""
-        raise ValueError()
+        self._fail(
+            "contains_features",
+            ".contains_features.feature.foo==1234",  # No foo matching 1234
+        )
 
 
 class TestSolver(_Base):
