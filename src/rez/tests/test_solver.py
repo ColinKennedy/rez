@@ -18,15 +18,7 @@ import itertools
 solver_verbosity = 1
 
 
-class TestSolver(TestBase):
-    @classmethod
-    def setUpClass(cls):
-        packages_path = cls.data_path("solver", "packages")
-        cls.packages_path = [packages_path]
-        cls.settings = dict(
-            packages_path=cls.packages_path,
-            package_filter=None)
-
+class _Base(TestBase):
     def _create_solvers(self, reqs):
         s1 = Solver(reqs,
                     self.packages_path,
@@ -107,6 +99,70 @@ class TestSolver(TestBase):
             self.assertEqual(s.status, SolverStatus.failed)
 
         return s1
+
+
+class FeatureEphemerals(_Base):
+    """Make sure feature ephemeral logic solves as expected."""
+
+    @classmethod
+    def setUpClass(cls):
+        packages_path = cls.data_path("solver", "feature_ephemerals")
+        cls.packages_path = [packages_path]
+        cls.settings = {
+            "package_filter": None,
+            "packages_path": cls.packages_path,
+        }
+
+    def test_from_requires(self):
+        """Solve feature ephemerals specified from a packages ``requires`` attribute."""
+        self._solve(["contains_features"], ["contains_features-1.3.0[]"])
+        self._solve(
+            ["contains_features", ".contains_features.feature.foo-1+<2"],
+            ["contains_features-1.2.0[]"],
+        )
+        self._solve(
+            [
+                "contains_features",
+                ".contains_features.feature.bar-1",
+            ],
+            ["contains_features[1.0.0]"],
+        )
+
+    def test_from_variants(self):
+        """Solve feature ephemerals specified from a packages ``variants`` attribute."""
+        raise ValueError()
+
+    def test_multi_match(self):
+        """Solve the package that contains all feature ephemeral matches."""
+        raise ValueError()
+
+    def test_nested(self):
+        """Solve a feature ephemeral for a **dependency** package.
+
+        This package is not in the initial feature request but is a dependency
+        of another package - but that dependency range must match the requested
+        ephemeral packages (or fail, trying).
+
+        """
+        raise ValueError()
+
+    def test_no_matching_name(self):
+        """Fail the solve because the feature ephemeral name is not found."""
+        raise ValueError()
+
+    def test_no_matching_version(self):
+        """Fail the solve because the feature ephemeral version range is wrong."""
+        raise ValueError()
+
+
+class TestSolver(_Base):
+    @classmethod
+    def setUpClass(cls):
+        packages_path = cls.data_path("solver", "packages")
+        cls.packages_path = [packages_path]
+        cls.settings = dict(
+            packages_path=cls.packages_path,
+            package_filter=None)
 
     def test_01(self):
         """Extremely basic solves involving a single package."""
