@@ -91,6 +91,13 @@ class Shell(ActionInterpreter):
 
     @property
     def executable(self):
+        # TODO : Remove this later
+        #
+        # The "shub://singularityhub/ubuntu" container fails saying
+        # /usr/bin/bash doesn't exist so we'll temporarily change it to a path
+        # that does exist.
+        #
+        return "/bin/bash"
         return self.__class__.executable_filepath()
 
     @classmethod
@@ -482,6 +489,14 @@ class UnixShell(Shell):
                             "within the target shell (%s); this has been done "
                             "in the parent process instead." % self.name())
                     executor.source(context_file)
+
+        # TODO : Remove this later
+        #
+        # The "shub://singularityhub/ubuntu" container fails saying
+        # /usr/bin/bash doesn't exist so we'll temporarily change it to a path
+        # that does exist.
+        #
+        shell_command = "/bin/bash"
 
         if shell_command:  # an empty string means 'run no command and exit'
             executor.command(shell_command)

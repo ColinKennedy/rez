@@ -1447,6 +1447,15 @@ class ResolvedContext(object):
         quiet = quiet or \
             (RezToolsVisibility[config.rez_tools_visibility] == RezToolsVisibility.never)
 
+        container_type, image = _get_container(self.resolved_packages)
+
+        if container_type:
+            if pre_command:
+                # TODO : Add support for this, if able
+                raise NotImplementedError("Stacking pre_command is not supported yet.")
+
+            pre_command = _create_pre_command(container_type, image)
+
         # spawn the shell subprocess
         p = sh.spawn_shell(context_file,
                            tmpdir,
@@ -2157,3 +2166,25 @@ class ResolvedContext(object):
         for path in suite_paths:
             tools_path = os.path.join(path, "bin")
             executor.env.PATH.append(tools_path)
+
+
+def _get_container(packages):
+    for package in packages:
+        if not hasattr(package, "container"):
+            continue
+
+        container = package.container["type"]
+        image = package.container["image"]
+
+        if container:
+            return container, image
+
+    return "", ""
+
+
+def _create_pre_command(container_type, image):
+    from rez.plugin_managers import plugin_manager
+
+    plug_in = plugin_manager.create_instance("container", container_type)
+
+    return plug_in.get_pre_command(image)

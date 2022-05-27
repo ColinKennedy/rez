@@ -451,6 +451,12 @@ class CommandPluginType(RezPluginType):
     type_name = "command"
 
 
+class ContainerPluginType(RezPluginType):
+    """Support calling containers during the execution of Rez shells.
+    """
+    type_name = "container"
+
+
 plugin_manager = RezPluginManager()
 
 
@@ -461,3 +467,4 @@ plugin_manager.register_plugin_type(BuildSystemPluginType)
 plugin_manager.register_plugin_type(PackageRepositoryPluginType)
 plugin_manager.register_plugin_type(BuildProcessPluginType)
 plugin_manager.register_plugin_type(CommandPluginType)
+plugin_manager.register_plugin_type(ContainerPluginType)
