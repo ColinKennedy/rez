@@ -2169,6 +2169,8 @@ class ResolvedContext(object):
 
 
 def _get_container(packages):
+    containers = []
+
     for package in packages:
         if not hasattr(package, "container"):
             continue
@@ -2177,9 +2179,21 @@ def _get_container(packages):
         image = package.container["image"]
 
         if container:
-            return container, image
+            containers.append((package, container, image))
 
-    return "", ""
+    if len(containers) == 1:
+        _, container, image = containers[0]
+
+        return container, image
+
+    if not containers:
+        return "", ""
+
+    raise ResolvedContextError(
+        'Packages "{packages!r}" define a container image. Only one is allowed.'.format(
+            packages=sorted(package for package, _, _ in containers)
+        )
+    )
 
 
 def _create_pre_command(container_type, image):
